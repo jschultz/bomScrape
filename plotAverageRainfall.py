@@ -37,20 +37,34 @@ def plotAverageRainfall(arglist=None):
     parser.add_argument('-v', '--verbosity',  type=int, default=1)
     parser.add_argument('-l', '--limit',      type=int, help='Limit number of rows to process')
 
-    parser.add_argument('--no-comments',      action='store_true', help='Do not output descriptive comments')
-    parser.add_argument('--no-header',        action='store_true', help='Do not output CSV header with column names')
-
-    parser.add_argument('--logfile',          type=str, help='Log file to record plot')
+    parser.add_argument('--outfile',          type=str, help='Output image file')
+    parser.add_argument('--logfile',          type=str, help='Log file to record plot, default is <outfile>.log')
+    parser.add_argument('--no-comments',      action='store_true', help='Do not produce a comments logfile')
 
     parser.add_argument('infile',             type=str, help='Input CSV file')
 
     args = parser.parse_args(arglist)
     hiddenargs = ['verbosity', 'no_comments']
 
-    if args.logfile:
+    # Read comments at start of infile.
+    infile = open(args.infile, 'rU')
+    incomments = ''
+    while True:
+        line = infile.readline().decode('utf8')
+        if line[:1] == '#':
+            incomments += line
+        else:
+            infieldnames = next(csv.reader([line]))
+            break
 
-        #comments = ((' ' + args.outdata + ' ') if args.outdata else '').center(80, '#') + '\n'
-        comments = ''
+    if not incomments:
+        incomments = '#' * 80 + '\n'
+
+    inreader=csv.DictReader(infile, fieldnames=infieldnames)
+
+    if (not args.no_comments) and (args.outfile or args.logfile):
+
+        comments = ((' ' + args.outfile + ' ') if args.outfile else '').center(80, '#') + '\n'
         comments += '# ' + os.path.basename(sys.argv[0]) + '\n'
         arglist = args.__dict__.keys()
         for arg in arglist:
@@ -70,8 +84,10 @@ def plotAverageRainfall(arglist=None):
                 elif val is not None:
                     comments += '#     --' + arg + '=' + str(val) + '\n'
 
-        logfile = open(args.logfile, 'w')
-        logfile.write(comments.encode('utf8'))
+        logfilename = args.logfile if args.logfile else args.outfile.rsplit('.',1)[0] + '.log'
+        logfile = open(logfilename, 'w')
+        logfile.write(comments.encode('utf-8'))
+        logfile.write(incomments)
         logfile.close()
 
     until = dateparser.parse(args.until).date() if args.until else None
@@ -82,7 +98,7 @@ def plotAverageRainfall(arglist=None):
 
     xaxis = []
     ydata = []
-    for row in csv.DictReader(filter(lambda line: line[0]!='#', open(args.infile))):
+    for row in inreader:
         date = datetime.date(year=int(row['Year']), month=int(row['Month']), day=int(row['Day']))
         if until and date >= until:
             continue
@@ -101,11 +117,15 @@ def plotAverageRainfall(arglist=None):
         cumulativedata += [cumulative]
 
     fig, ax1 = pyplot.subplots()
+    pyplot.title(args.infile)
+    ax2 = ax1.twinx()
     ax1.plot(xaxis, ydata, color='blue')
     ax1.tick_params(axis='y', colors='blue')
-    ax2 = ax1.twinx()
-    ax2.plot(xaxis, cumulativedata, color='red')
+    ax1.set_xlabel('Date')
+    ax1.set_ylabel('Difference from long-term average (mm)')
+    ax2.fill_between(xaxis, cumulativedata, color='red')
     ax2.tick_params(axis='y', colors='red')
+    ax2.set_ylabel('Cumulative difference from long-term average (mm)')
 
 
     def align_yaxis(ax1, ax2):
@@ -128,7 +148,14 @@ def plotAverageRainfall(arglist=None):
     align_yaxis(ax1, ax2)
     ax1.axhline(0)
 
-    pyplot.show()
+    # http://matplotlib.1069221.n5.nabble.com/Control-twinx-series-zorder-ax2-series-behind-ax1-series-or-place-ax2-on-left-ax1-on-right-tp12994p12995.html
+    ax1.set_zorder(ax2.get_zorder()+1)
+    ax1.patch.set_visible(False)
+
+    if args.outfile:
+        pyplot.savefig(args.outfile)
+    else:
+        pyplot.show()
 
     exit(0)
 
