@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
 # Copyright 2019 Jonathan Schultz
@@ -25,6 +25,7 @@ import os
 import shutil
 import csv
 import re
+import cartopy
 from matplotlib import pyplot, tri
 import numpy
 
@@ -51,10 +52,10 @@ def contourRainfall(arglist=None):
     hiddenargs = ['verbosity', 'no_comments']
 
     # Read comments at start of infile.
-    infile = open(args.infile, 'rU')
+    infile = open(args.infile, 'r')
     incomments = ''
     while True:
-        line = infile.readline().decode('utf8')
+        line = infile.readline()
         if line[:1] == '#':
             incomments += line
         else:
@@ -163,10 +164,14 @@ def evalfilter(" + ','.join([clean(fieldname) for fieldname in infieldnames]) + 
     Xi, Yi = numpy.meshgrid(xi, yi)
     zi = interpolator(Xi, Yi)
 
-    fig, ax1 = pyplot.subplots(figsize=(16, 8))
+    local = (116, 121.9, -34.24, -35)
+    fig = pyplot.figure(figsize=(16, 8))
+    ax1 = fig.add_axes([0, 0, 1, 1], projection = cartopy.crs.Mercator())
+    ax1.add_feature(cartopy.feature.COASTLINE)
+
     pyplot.title("Cumulative rainfall compared with average: " + args.since or "" + " to " + args.until or "")
     ax1.contour(xi, yi, zi, linewidths=0.5, colors="k")
-    cntr1 = ax1.contourf(xi, yi, zi, 10, cmap="hot")
+    cntr1 = ax1.contour(xi, yi, zi, 10, cmap="hot")
     fig.colorbar(cntr1, ax=ax1)
     ax1.plot(xdata, ydata, 'ko', ms=3)
     for i, text in enumerate(textdata):
