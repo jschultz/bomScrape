@@ -37,9 +37,9 @@ import itertools
 from sqlalchemy import *
 from sqlalchemy import exc
 
-def bomScrape(arglist=None):
+def bomDailyRailfall(arglist=None):
 
-    parser = argparse.ArgumentParser(description='Scrape BOM data.',
+    parser = argparse.ArgumentParser(description='Output BOM daily rainfall data to CSV or database.',
                                      fromfile_prefix_chars='@')
 
     parser.add_argument('-v', '--verbosity',  type=int, default=1)
@@ -48,34 +48,48 @@ def bomScrape(arglist=None):
     parser.add_argument('--no-comments',      action='store_true', help='Do not output descriptive comments')
     parser.add_argument('--no-header',        action='store_true', help='Do not output CSV header with column names')
 
-    parser.add_argument('-f', '--filter',     type=str, help='Python expression evaluated to determine whether site is included')
+    parser.add_argument('-f', '--filter',     type=str, help='Python expression evaluated to determine whether site is included, for example \'Name == "WALPOLE"\'')
     parser.add_argument('-d', '--dry-run',    action='store_true', help='Just select sites without collecting data')
 
-    parser.add_argument('outdata',            type=str, nargs='?', help='Output CSV file or SQLAlchemy specification, otherwise use stdout.')
+    parser.add_argument('-s', '--sites',      type=str, required=True, help='CSV file or SQLAlchemy database specification for site data')
+
+    parser.add_argument('outdata',            type=str, nargs='?', help='Output CSV file, otherwise use database if specified, or stdout if not.')
 
     args = parser.parse_args(arglist)
     hiddenargs = ['verbosity', 'no_comments']
 
-    if not args.outdata:
-        outfile = sys.stdout
-        bomdb = None
-        logfilename = None
-    elif "://" in args.outdata:    # Database
+    incomments = ''
+    if "://" in args.sites:       # Database
         outfile = None
-        bomdb = create_engine(args.outdata)
+        bomdb = create_engine(args.sites)
         bomcon = bomdb.connect()
         bommd = MetaData(bind=bomdb)
-        logfilename = args.outdata.split('/')[-1].rsplit('.',1)[0] + '.log'
+        logfilename = args.sites.split('/')[-1].rsplit('.',1)[0] + '.log'
     else:
+        bomdb = None
+        sitefile = open(args.sites, 'rU')
+        # Read comments at start of infile.
+        while True:
+            line = sitefile.readline().decode('utf8')
+            if line[:1] == '#':
+                incomments += line
+            else:
+                sitefieldnames = next(csv.reader([line]))
+                break
+
+        sitereader=csv.DictReader(sitefile, fieldnames=sitefieldnames)
+
+    if args.outdata:
         if os.path.exists(args.outdata):
             shutil.move(args.outdata, args.outdata + '.bak')
 
         outfile = open(args.outdata, 'w')
-        bomdb = None
+        logfilename = None
+    elif bomdb is None:
+        outfile = sys.stdout
         logfilename = None
 
     if not args.no_comments and not args.dry_run:
-
         comments = ((' ' + args.outdata + ' ') if args.outdata else '').center(80, '#') + '\n'
         comments += '# ' + os.path.basename(sys.argv[0]) + '\n'
         arglist = args.__dict__.keys()
@@ -96,45 +110,93 @@ def bomScrape(arglist=None):
                 elif val is not None:
                     comments += '#     --' + arg + '=' + str(val) + '\n'
 
-        incomments = ''
         if logfilename:
             if os.path.isfile(logfilename):
-                incomments = open(logfilename, 'r').read()
+                incomments += open(logfilename, 'r').read()
 
             logfile = open(logfilename, 'w')
         else:
             logfile = outfile
 
+        if not incomments:
+            incomments = '#' * 80 + '\n'
+
+        comments += incomments
         logfile.write(comments.encode('utf8'))
-        logfile.write(incomments)
 
         if logfilename:
             logfile.close()
 
-
-
-    bomSite = Table('Site', bommd, autoload=True)
+    if bomdb:
+        bomSite = Table('Site', bommd, autoload=True)
+        columns = [col.key for col in bomSite.c]
+    else:
+        columns = sitefieldnames
 
     if args.filter:
             exec("\
-def evalfilter(" + ','.join([col.key for col in bomSite.c]) + ",**kwargs):\n\
+def evalfilter(" + ','.join(columns) + ",**kwargs):\n\
     return " + args.filter, globals())
 
     sites = []
-    for row in bomcon.execute(bomSite.select()):
-        rowargs = {item[0]: item[1] for item in row.items()}
-        keep = True
-        if args.filter:
-            keep = evalfilter(**rowargs) or False
-        if not keep:
-            continue
+    if bomdb:
+        for row in bomcon.execute(bomSite.select()):
+            rowargs = {item[0]: item[1] for item in row.items()}
+            keep = True
+            if args.filter:
+                keep = evalfilter(**rowargs) or False
+            if not keep:
+                continue
 
-        sites += [row]
+            sites += [row]
+    else:
+        for row in sitereader:
+            rowargs = {item[0]: item[1] for item in row.items()}
+            keep = True
+            if args.filter:
+                keep = evalfilter(**rowargs) or False
+            if not keep:
+                continue
+
+            sites += [row]
 
     if args.verbosity >= 1:
         print ("Found " + str(len(sites)) + " sites:", file=sys.stderr)
         for site in sites:
             print("    " + site['Name'] + " - " + str(site['Site']), file=sys.stderr)
+
+    def intOrNone(v):
+        return int(v) if v else None
+
+    def floatOrNone(v):
+        return float(v) if v else None
+
+    outfields = OrderedDict([
+        ('Product code',                                    ('Product',     string.strip)),
+        ('Bureau of Meteorology station number',            ('Site',        int)),
+        ('Date',                                            ('Date',        dateparser.parse)),
+        ('Rainfall amount (millimetres)',                   ('Rainfall',    floatOrNone)),
+        ('Period over which rainfall was measured (days)',  ('Period',      intOrNone)),
+        ('Quality',                                         ('Quality',     string.strip))])
+
+    if outfile:
+        outcsv=csv.writer(outfile)
+        if not args.no_header:
+            outcsv.writerow([ data[0] for field, data in outfields.items() ])
+    else:
+        try:
+            bomRainfall = Table('Rainfall', bommd, autoload=True)
+        except exc.NoSuchTableError:
+            bomRainfall = Table('Rainfall', bommd,
+                                Column('Product',   String(32), primary_key=True),
+                                Column('Site',      Integer,    primary_key=True),
+                                Column('Date',      Date,       primary_key=True),
+                                Column('Rainfall',  Float),
+                                Column('Period',    Integer),
+                                Column('Quality',   String(32)))
+            bomRainfall.create(bomdb)
+
+        bomtr = bomcon.begin()
 
     for site in sites:
 
@@ -157,52 +219,26 @@ def evalfilter(" + ','.join([col.key for col in bomSite.c]) + ",**kwargs):\n\
         fields = csvdata.fieldnames
         fields += ('Date',)
 
-        def intOrNone(v):
-            return int(v) if v else None
-
-        def floatOrNone(v):
-            return float(v) if v else None
-
-        outfields = OrderedDict([
-            ('Product code',                                    ('Product',     string.strip)),
-            ('Bureau of Meteorology station number',            ('Site',        int)),
-            ('Date',                                            ('Date',        dateparser.parse)),
-            ('Rainfall amount (millimetres)',                   ('Rainfall',    floatOrNone)),
-            ('Period over which rainfall was measured (days)',  ('Period',      intOrNone)),
-            ('Quality',                                         ('Quality',     string.strip))])
-
-        if bomdb:    # Database
+        inrowcount = 0
+        while True:
+            if args.limit and inrowcount == args.limit:
+                break
 
             try:
-                bomRainfall = Table('Rainfall', bommd, autoload=True)
-            except exc.NoSuchTableError:
-                bomRainfall = Table('Rainfall', bommd,
-                                    Column('Product',   String(32), primary_key=True),
-                                    Column('Site',      Integer,    primary_key=True),
-                                    Column('Date',      Date,       primary_key=True),
-                                    Column('Rainfall',  Float),
-                                    Column('Period',    Integer),
-                                    Column('Quality',   String(32)))
-                bomRainfall.create(bomdb)
+                line = csvdata.next()
+            except StopIteration:
+                break
+            if line['Rainfall amount (millimetres)'] == '':
+                continue
 
-            bomtr = bomcon.begin()
+            inrowcount += 1
 
-            inrowcount = 0
-            while True:
-                if args.limit and inrowcount == args.limit:
-                    break
+            line['Date'] = line['Year'] + '-' + line['Month'] + '-' + line['Day']
 
-                try:
-                    line = csvdata.next()
-                except StopIteration:
-                    break
-                if line['Rainfall amount (millimetres)'] == '':
-                    continue
-
-                inrowcount += 1
-
+            if outfile:
                 line['Date'] = line['Year'] + '-' + line['Month'] + '-' + line['Day']
-
+                outcsv.writerow([line[field] for field in outfields])
+            else:
                 try:
                     bomcon.execute(bomRainfall.insert().values(
                         { data[0]: data[1](line[field]) for field, data in outfields.items() }))
@@ -214,37 +250,16 @@ def evalfilter(" + ','.join([col.key for col in bomSite.c]) + ",**kwargs):\n\
                         { data[0]: bindparam(data[0]) for field, data in outfields.items() }),
                         { data[0]: data[1](line[field]) for field, data in outfields.items() })
 
-            bomtr.commit()
-            bomtr = None
-        else:
-            outcsv=csv.writer(outfile)
-            if not args.no_header:
-                outcsv.writerow([field for field in outfields ])
+    if outfile:
+        outfile.close()
+    else:
+        bomtr.commit()
 
-            inrowcount = 0
-            while True:
-                if args.limit and inrowcount == args.limit:
-                    break
-
-                try:
-                    line = csvdata.next()
-                except StopIteration:
-                    break
-                if line['Rainfall amount (millimetres)'] == '':
-                    continue
-
-                inrowcount += 1
-
-                line['Date'] = line['Year'] + '-' + line['Month'] + '-' + line['Day']
-                outcsv.writerow([line[field] for field in outfields])
-
-    if bomdb:    # Database
+    if bomdb:
         bomcon.close()
         bomdb.dispose()
-    elif (args.outdata):
-        outfile.close()
 
     exit(0)
 
 if __name__ == '__main__':
-    bomScrape(None)
+    bomDailyRailfall(None)

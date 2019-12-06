@@ -32,11 +32,13 @@ from sqlalchemy import exc
 
 def bomSites(arglist=None):
 
-    parser = argparse.ArgumentParser(description='Sites BOM data.',
+    parser = argparse.ArgumentParser(description='Output BOM site data for a given state to CSV or database.',
                                      fromfile_prefix_chars='@')
 
     parser.add_argument('-v', '--verbosity',  type=int, default=1)
     parser.add_argument('-l', '--limit',      type=int, help='Limit number of rows to process')
+
+    parser.add_argument('-s', '--state',      type=str, choices=['SA', 'NSW', 'NT', 'QLD', 'TAS', 'VIC', 'WA'])
 
     parser.add_argument('--no-comments',      action='store_true', help='Do not output descriptive comments')
     parser.add_argument('--no-header',        action='store_true', help='Do not output CSV header with column names')
@@ -84,6 +86,8 @@ def bomSites(arglist=None):
                 elif val is not None:
                     comments += '#     --' + arg + '=' + str(val) + '\n'
 
+        comments += '#' * 80 + '\n'
+
         if logfilename:
             logfile = open(logfilename, 'w')
         else:
@@ -97,7 +101,7 @@ def bomSites(arglist=None):
     if args.verbosity >= 1:
         print("Loading BOM data.", file=sys.stderr)
 
-    reqlines = requests.get('http://www.bom.gov.au/climate/data/lists_by_element/alphaWA_136.txt', stream=True).iter_lines()
+    reqlines = requests.get('http://www.bom.gov.au/climate/data/lists_by_element/alpha' + args.state + '_136.txt', stream=True).iter_lines()
 
     firstline = reqlines.next()
     produced = dateparser.parse(re.match('.+Produced: (.+)', firstline).group(1))
@@ -111,25 +115,25 @@ def bomSites(arglist=None):
     fields[-1] += (None,)
     dummyline   = reqlines.next()
 
+    def str2bool(v):
+        return v.lower() in ("yes", "true", "t", "1")
+
+    def partdate(v):
+        return dateparser.parse(v, default=datetime(1,1,1))
+
+    fieldtype = {
+        'Site':  ('Site',    Integer,    int),
+        'Name':  ('Name',    String(32), string.strip),
+        'Lat':   ('Lat',     Float,      float),
+        'Lon':   ('Lon',     Float,      float),
+        'Start': ('Start',   Date,       partdate),
+        'End':   ('End',     Date,       partdate),
+        'Years': ('Years',   Float,      float),
+        '%':     ('Percent', Integer,    int),
+        'AWS':   ('AWS',     Boolean,    str2bool)
+    }
+
     if bomdb:    # Database
-        def str2bool(v):
-            return v.lower() in ("yes", "true", "t", "1")
-
-        def partdate(v):
-            return dateparser.parse(v, default=datetime(1,1,1))
-
-        fieldtype = {
-            'Site':  ('Site',    Integer,    int),
-            'Name':  ('Name',    String(32), string.strip),
-            'Lat':   ('Lat',     Float,      float),
-            'Lon':   ('Lon',     Float,      float),
-            'Start': ('Start',   Date,       partdate),
-            'End':   ('End',     Date,       partdate),
-            'Years': ('Years',   Float,      float),
-            '%':     ('Percent', Integer,    int),
-            'AWS':   ('AWS',     Boolean,    str2bool)
-        }
-
         bomcon = bomdb.connect()
         bomtr = bomcon.begin()
         bommd = MetaData(bind=bomdb)
@@ -162,7 +166,7 @@ def bomSites(arglist=None):
     else:
         outcsv=csv.writer(outfile)
         if not args.no_header:
-            outcsv.writerow([field[0] for field in fields])
+            outcsv.writerow([fieldtype[field[0]][0] for field in fields])
         inrowcount = 0
         while True:
             if args.limit and inrowcount == args.limit:
