@@ -41,7 +41,7 @@ def plotAverageRainfall(arglist=None):
     parser.add_argument('--logfile',          type=str, help='Log file to record plot, default is <outfile>.log')
     parser.add_argument('--no-comments',      action='store_true', help='Do not produce a comments logfile')
 
-    parser.add_argument('infile',             type=str, help='Input CSV file')
+    parser.add_argument('infile',             type=str, help='Input rainfall delta CSV file')
 
     args = parser.parse_args(arglist)
     hiddenargs = ['verbosity', 'no_comments']
@@ -117,7 +117,7 @@ def plotAverageRainfall(arglist=None):
         cumulativedata += [cumulative]
 
     fig, ax1 = pyplot.subplots()
-    pyplot.title(args.infile)
+    pyplot.title(args.infile.replace("_delta.csv", ""))
     ax2 = ax1.twinx()
     ax1.plot(xaxis, ydata, color='blue')
     ax1.tick_params(axis='y', colors='blue')
