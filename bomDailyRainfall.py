@@ -16,33 +16,32 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import print_function
-import argparse
+import argrecord
 import requests
 import re
 from dateutil import parser as dateparser
-
 import sys
 import os
 import shutil
 import csv
 import string
 from bs4 import BeautifulSoup
-from StringIO import StringIO
+from io import BytesIO, TextIOWrapper
 from zipfile import ZipFile
 
 from collections import OrderedDict
 import itertools
+from more_itertools import peekable
 
 from sqlalchemy import *
 from sqlalchemy import exc
 
 def bomDailyRailfall(arglist=None):
 
-    parser = argparse.ArgumentParser(description='Output BOM daily rainfall data to CSV or database.',
-                                     fromfile_prefix_chars='@')
+    parser = argrecord.ArgumentRecorder(description='Output BOM daily rainfall data to CSV or database.',
+                                        fromfile_prefix_chars='@')
 
-    parser.add_argument('-v', '--verbosity',  type=int, default=1)
+    parser.add_argument('-v', '--verbosity',  type=int, default=1, private=True)
     parser.add_argument('-l', '--limit',      type=int, help='Limit number of rows to process')
 
     parser.add_argument('--no-comments',      action='store_true', help='Do not output descriptive comments')
@@ -51,9 +50,9 @@ def bomDailyRailfall(arglist=None):
     parser.add_argument('-f', '--filter',     type=str, help='Python expression evaluated to determine whether site is included, for example \'Name == "WALPOLE"\'')
     parser.add_argument('-d', '--dry-run',    action='store_true', help='Just select sites without collecting data')
 
-    parser.add_argument('-s', '--sites',      type=str, required=True, help='CSV file or SQLAlchemy database specification for site data')
+    parser.add_argument('-s', '--sites',      type=str, required=True, help='CSV file or SQLAlchemy database specification for site data', input=True)
 
-    parser.add_argument('outdata',            type=str, nargs='?', help='Output CSV file, otherwise use database if specified, or stdout if not.')
+    parser.add_argument('outdata',            type=str, nargs='?', help='Output CSV file, otherwise use database if specified, or stdout if not.', output=True)
 
     args = parser.parse_args(arglist)
     hiddenargs = ['verbosity', 'no_comments']
@@ -67,16 +66,10 @@ def bomDailyRailfall(arglist=None):
         logfilename = args.sites.split('/')[-1].rsplit('.',1)[0] + '.log'
     else:
         bomdb = None
-        sitefile = open(args.sites, 'rU')
+        sitefile = peekable(open(args.sites, 'rU'))
         # Read comments at start of infile.
-        while True:
-            line = sitefile.readline().decode('utf8')
-            if line[:1] == '#':
-                incomments += line
-            else:
-                sitefieldnames = next(csv.reader([line]))
-                break
-
+        incomments = argrecord.ArgumentHelper.read_comments(sitefile)
+        sitefieldnames = next(csv.reader([line]))
         sitereader=csv.DictReader(sitefile, fieldnames=sitefieldnames)
 
     if args.outdata:
@@ -90,30 +83,10 @@ def bomDailyRailfall(arglist=None):
         logfilename = None
 
     if not args.no_comments and not args.dry_run:
-        comments = ((' ' + args.outdata + ' ') if args.outdata else '').center(80, '#') + '\n'
-        comments += '# ' + os.path.basename(sys.argv[0]) + '\n'
-        arglist = args.__dict__.keys()
-        for arg in arglist:
-            if arg not in hiddenargs:
-                val = getattr(args, arg)
-                if type(val) == str or type(val) == unicode:
-                    comments += '#     --' + arg + '="' + val + '"\n'
-                elif type(val) == bool:
-                    if val:
-                        comments += '#     --' + arg + '\n'
-                elif type(val) == list:
-                    for valitem in val:
-                        if type(valitem) == str:
-                            comments += '#     --' + arg + '="' + valitem + '"\n'
-                        else:
-                            comments += '#     --' + arg + '=' + str(valitem) + '\n'
-                elif val is not None:
-                    comments += '#     --' + arg + '=' + str(val) + '\n'
+        comments = parser.build_comments(args, args.outdata)
 
         if logfilename:
-            if os.path.isfile(logfilename):
-                incomments += open(logfilename, 'r').read()
-
+            incomments += open(logfilename, 'r').read()
             logfile = open(logfilename, 'w')
         else:
             logfile = outfile
@@ -122,7 +95,7 @@ def bomDailyRailfall(arglist=None):
             incomments = '#' * 80 + '\n'
 
         comments += incomments
-        logfile.write(comments.encode('utf8'))
+        logfile.write(comments)
 
         if logfilename:
             logfile.close()
@@ -172,12 +145,12 @@ def evalfilter(" + ','.join(columns) + ",**kwargs):\n\
         return float(v) if v else None
 
     outfields = OrderedDict([
-        ('Product code',                                    ('Product',     string.strip)),
+        ('Product code',                                    ('Product',     str.strip)),
         ('Bureau of Meteorology station number',            ('Site',        int)),
         ('Date',                                            ('Date',        dateparser.parse)),
         ('Rainfall amount (millimetres)',                   ('Rainfall',    floatOrNone)),
         ('Period over which rainfall was measured (days)',  ('Period',      intOrNone)),
-        ('Quality',                                         ('Quality',     string.strip))])
+        ('Quality',                                         ('Quality',     str.strip))])
 
     if outfile:
         outcsv=csv.writer(outfile)
@@ -213,9 +186,9 @@ def evalfilter(" + ','.join(columns) + ",**kwargs):\n\
         if not link:
             raise RuntimeError("Station data not found")
 
-        zipfile = ZipFile(StringIO(requests.get('http://www.bom.gov.au' + link['href'], stream=True).content))
+        zipfile = ZipFile(BytesIO(requests.get('http://www.bom.gov.au' + link['href'], stream=True).content))
         csvname = next(name for name in zipfile.namelist() if name[-4:] == '.csv')
-        csvdata = csv.DictReader(zipfile.open(csvname))
+        csvdata = csv.DictReader(TextIOWrapper(zipfile.open(csvname)))
         fields = csvdata.fieldnames
         fields += ('Date',)
 
@@ -225,7 +198,7 @@ def evalfilter(" + ','.join(columns) + ",**kwargs):\n\
                 break
 
             try:
-                line = csvdata.next()
+                line = next(csvdata)
             except StopIteration:
                 break
             if line['Rainfall amount (millimetres)'] == '':
