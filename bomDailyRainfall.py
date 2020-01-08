@@ -16,7 +16,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import argrecord
+from argrecord import ArgumentHelper, ArgumentRecorder
 import requests
 import re
 from dateutil import parser as dateparser
@@ -31,15 +31,14 @@ from zipfile import ZipFile
 
 from collections import OrderedDict
 import itertools
-from more_itertools import peekable
 
 from sqlalchemy import *
 from sqlalchemy import exc
 
 def bomDailyRailfall(arglist=None):
 
-    parser = argrecord.ArgumentRecorder(description='Output BOM daily rainfall data to CSV or database.',
-                                        fromfile_prefix_chars='@')
+    parser = ArgumentRecorder(description='Output BOM daily rainfall data to CSV or database.',
+                              fromfile_prefix_chars='@')
 
     parser.add_argument('-v', '--verbosity',  type=int, default=1, private=True)
     parser.add_argument('-l', '--limit',      type=int, help='Limit number of rows to process')
@@ -66,10 +65,10 @@ def bomDailyRailfall(arglist=None):
         logfilename = args.sites.split('/')[-1].rsplit('.',1)[0] + '.log'
     else:
         bomdb = None
-        sitefile = peekable(open(args.sites, 'rU'))
+        sitefile = open(args.sites, 'r')
         # Read comments at start of infile.
-        incomments = argrecord.ArgumentHelper.read_comments(sitefile)
-        sitefieldnames = next(csv.reader([line]))
+        incomments = ArgumentHelper.read_comments(sitefile)
+        sitefieldnames = next(csv.reader([next(sitefile)]))
         sitereader=csv.DictReader(sitefile, fieldnames=sitefieldnames)
 
     if args.outdata:
@@ -92,7 +91,7 @@ def bomDailyRailfall(arglist=None):
             logfile = outfile
 
         if not incomments:
-            incomments = '#' * 80 + '\n'
+            incomments = ArgumentHelper.separator()
 
         comments += incomments
         logfile.write(comments)

@@ -24,7 +24,6 @@ import os
 import shutil
 import csv
 from matplotlib import pyplot
-from more_itertools import peekable
 
 def plotAverageRainfall(arglist=None):
 
@@ -46,8 +45,8 @@ def plotAverageRainfall(arglist=None):
     args = parser.parse_args(arglist)
 
     # Read comments at start of infile.
-    infile = peekable(open(args.infile, 'r'))
-    incomments = argrecord.ArgumentHelper.read_comments(infile) or ('#' * 80 + '\n')
+    infile = open(args.infile, 'r')
+    incomments = argrecord.ArgumentHelper.read_comments(infile) or ArgumentHelper.separator()
     infieldnames = next(csv.reader([next(infile)]))
     inreader=csv.DictReader(infile, fieldnames=infieldnames)
 

@@ -1,0 +1,53 @@
+################################# ${site}.pdf ##################################
+# plotAverageRainfall.py
+#     --since "2019-01-01"
+#>    --outfile "${site}.pdf"
+#<             "${site}_delta.csv"
+############################## ${site}_delta.csv ###############################
+# csvFilter
+#     --header "Year"
+#              "Month"
+#              "Day"
+#              "Daily rainfall"
+#              "Smoothed rainfall"
+#              "Average rainfall"
+#              "Delta"
+#     --prelude "average = { (row['Month'], row['Day']): row['Average rainfall'] for row in csv.DictReader(filter(lambda line: line[0]!='#', open('${site}_average.csv'))) }"
+#     --datecol "date"
+#>    --outfile "${site}_delta.csv"
+#     --data "(Year, Month, Day, Daily_rainfall, Smoothed_rainfall, Decimal(average[(Month,Day)]), Decimal(Smoothed_rainfall) - Decimal(average[(Month,Day)]))"
+#     --column "text"
+#<             "${site}_smoothed.csv"
+############################# ${site}_smoothed.csv #############################
+# csvFilter
+#     --header "Year"
+#              "Month"
+#              "Day"
+#              "Daily rainfall"
+#              "Smoothed rainfall"
+#     --prelude "window = ({},) * 13"
+#               "if (args.jobs > 1):"
+#               "    raise RuntimeError('This script can only be run with a single job (--jobs=1).')"
+#               "def smooth(Date,Period,Rainfall):"
+#               "    global window"
+#               "    result = []"
+#               "    for day in range(Period):"
+#               "        window=window[1:13]+({'Date': (Date + datetime.timedelta(days=-day)).date(), 'Daily': round(Rainfall/Period,2)},)"
+#               "        dayresult = [{'Year': window[6]['Date'].year, 'Month': window[6]['Date'].month, 'Day': window[6]['Date'].day, 'Daily rainfall':window[6]['Daily'], 'Smoothed rainfall': round(sum(tuple(item['Daily'] for item in window))/13,2)}] if window[0] else None"
+#               "        if dayresult:"
+#               "            result += dayresult"
+#               "    return result"
+#     --datecol "date"
+#     --jobs 1
+#>    --outfile "${site}_smoothed.csv"
+#     --data "smooth(dateparser.parse(Date), int(Period or 1), Decimal(Rainfall))"
+#     --column "text"
+#<             "${site}.csv"
+################################# ${site}.csv ##################################
+# csvFilter
+#     --pipe "sqlite3 -header -csv WA.sqlite "SELECT Date, RainFall, Period from Rainfall, Site WHERE Site.Site = Rainfall.Site AND Name = \"${site}\" ORDER BY Date DESC""
+#     --datecol "date"
+#>    --outfile "${site}.csv"
+#     --copy
+#     --column="text"
+################################################################################

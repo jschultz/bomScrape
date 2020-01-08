@@ -16,8 +16,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import print_function
-import argparse
+from argrecord import ArgumentHelper, ArgumentRecorder
 import requests
 import re
 from dateutil import parser as dateparser
@@ -32,21 +31,20 @@ from sqlalchemy import exc
 
 def bomSites(arglist=None):
 
-    parser = argparse.ArgumentParser(description='Output BOM site data for a given state to CSV or database.',
-                                     fromfile_prefix_chars='@')
+    parser = ArgumentRecorder(description='Output BOM site data for a given state to CSV or database.',
+                              fromfile_prefix_chars='@')
 
-    parser.add_argument('-v', '--verbosity',  type=int, default=1)
+    parser.add_argument('-v', '--verbosity',  type=int, default=1, private=True)
     parser.add_argument('-l', '--limit',      type=int, help='Limit number of rows to process')
 
-    parser.add_argument('-s', '--state',      type=str, choices=['SA', 'NSW', 'NT', 'QLD', 'TAS', 'VIC', 'WA'])
+    parser.add_argument('-s', '--state',      type=str, choices=['SA', 'NSW', 'NT', 'QLD', 'TAS', 'VIC', 'WA'], required=True)
 
     parser.add_argument('--no-comments',      action='store_true', help='Do not output descriptive comments')
     parser.add_argument('--no-header',        action='store_true', help='Do not output CSV header with column names')
 
-    parser.add_argument('outdata',            type=str, nargs='?', help='Output CSV file or SQLAlchemy specification, otherwise use stdout.')
+    parser.add_argument('outdata',            type=str, nargs='?', help='Output CSV file or SQLAlchemy specification, otherwise use stdout.', output=True)
 
     args = parser.parse_args(arglist)
-    hiddenargs = ['verbosity', 'no_comments']
 
     if not args.outdata:
         outfile = sys.stdout
@@ -65,35 +63,12 @@ def bomSites(arglist=None):
         logfilename = None
 
     if not args.no_comments:
-
-        comments = ((' ' + args.outdata + ' ') if args.outdata else '').center(80, '#') + '\n'
-        comments += '# ' + os.path.basename(sys.argv[0]) + '\n'
-        arglist = args.__dict__.keys()
-        for arg in arglist:
-            if arg not in hiddenargs:
-                val = getattr(args, arg)
-                if type(val) == str or type(val) == unicode:
-                    comments += '#     --' + arg + '="' + val + '"\n'
-                elif type(val) == bool:
-                    if val:
-                        comments += '#     --' + arg + '\n'
-                elif type(val) == list:
-                    for valitem in val:
-                        if type(valitem) == str:
-                            comments += '#     --' + arg + '="' + valitem + '"\n'
-                        else:
-                            comments += '#     --' + arg + '=' + str(valitem) + '\n'
-                elif val is not None:
-                    comments += '#     --' + arg + '=' + str(val) + '\n'
-
-        comments += '#' * 80 + '\n'
-
         if logfilename:
             logfile = open(logfilename, 'w')
         else:
             logfile = outfile
 
-        logfile.write(comments.encode('utf8'))
+        parser.write_comments(args, logfile, incomments=ArgumentHelper.separator())
 
         if logfilename:
             logfile.close()
@@ -101,19 +76,19 @@ def bomSites(arglist=None):
     if args.verbosity >= 1:
         print("Loading BOM data.", file=sys.stderr)
 
-    reqlines = requests.get('http://www.bom.gov.au/climate/data/lists_by_element/alpha' + args.state + '_136.txt', stream=True).iter_lines()
+    reqlines = requests.get('http://www.bom.gov.au/climate/data/lists_by_element/alpha' + args.state + '_136.txt', stream=True).iter_lines(decode_unicode=True)
 
-    firstline = reqlines.next()
+    firstline = next(reqlines)
     produced = dateparser.parse(re.match('.+Produced: (.+)', firstline).group(1))
 
-    dummyline   = reqlines.next()
-    headingline = reqlines.next()
+    dummyline   = next(reqlines)
+    headingline = next(reqlines)
     fields = [(m.group(), m.start()) for m in re.finditer(r'\S+', headingline)]
     for idx in range(len(fields)):
         if idx:
             fields[idx-1] += (fields[idx][1] - 1,)
     fields[-1] += (None,)
-    dummyline   = reqlines.next()
+    dummyline   = next(reqlines)
 
     def str2bool(v):
         return v.lower() in ("yes", "true", "t", "1")
@@ -123,7 +98,7 @@ def bomSites(arglist=None):
 
     fieldtype = {
         'Site':  ('Site',    Integer,    int),
-        'Name':  ('Name',    String(32), string.strip),
+        'Name':  ('Name',    String(32), str.strip),
         'Lat':   ('Lat',     Float,      float),
         'Lon':   ('Lon',     Float,      float),
         'Start': ('Start',   Date,       partdate),
@@ -152,7 +127,7 @@ def bomSites(arglist=None):
                 break
             inrowcount += 1
 
-            line = reqlines.next()
+            line = next(reqlines)
             if not line:
                 break
             bomcon.execute(bomSite.insert().values(
@@ -173,10 +148,10 @@ def bomSites(arglist=None):
                 break
             inrowcount += 1
 
-            line = reqlines.next()
+            line = next(reqlines)
             if not line:
                 break
-            outcsv.writerow([string.strip(line[field[1]:field[2]]) for field in fields])
+            outcsv.writerow([str.strip(line[field[1]:field[2]]) for field in fields])
 
         outfile.close()
 

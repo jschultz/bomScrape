@@ -16,8 +16,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import print_function
-import argparse
+import argrecord
 import datetime
 from dateutil import parser as dateparser
 import sys
@@ -31,10 +30,10 @@ import numpy
 
 def contourRainfall(arglist=None):
 
-    parser = argparse.ArgumentParser(description='Sites BOM data.',
-                                     fromfile_prefix_chars='@')
+    parser = argrecord.ArgumentRecorder(description='Sites BOM data.',
+                                        fromfile_prefix_chars='@')
 
-    parser.add_argument('-v', '--verbosity',  type=int, default=1)
+    parser.add_argument('-v', '--verbosity',  type=int, default=1, private=True)
     parser.add_argument('-l', '--limit',      type=int, help='Limit number of rows to process')
 
     parser.add_argument('-f', '--filter',     type=str, help='Python expression evaluated to determine whether site is included')
@@ -42,25 +41,19 @@ def contourRainfall(arglist=None):
     parser.add_argument(      '--since',      type=str, help='Start date to produce contour from')
     parser.add_argument(      '--until',      type=str, help='End date to produce contour from')
 
-    parser.add_argument('--outfile',          type=str, help='Output image file')
+    parser.add_argument('--outfile',          type=str, help='Output image file', output=True)
     parser.add_argument('--logfile',          type=str, help='Log file to record plot, default is <outfile>.log')
     parser.add_argument('--no-comments',      action='store_true', help='Do not produce a comments logfile')
 
-    parser.add_argument('infile',             type=str, help='Site CSV file')
+    parser.add_argument('infile',             type=str, help='Site CSV file', input=True)
 
     args = parser.parse_args(arglist)
-    hiddenargs = ['verbosity', 'no_comments']
 
     # Read comments at start of infile.
     infile = open(args.infile, 'r')
-    incomments = ''
-    while True:
-        line = infile.readline()
-        if line[:1] == '#':
-            incomments += line
-        else:
-            infieldnames = next(csv.reader([line]))
-            break
+    incomments = argrecord.ArgumentHelper.read_comments(infile) or ArgumentHelper.separator()
+    infieldnames = next(csv.reader([next(infile)]))
+    inreader=csv.DictReader(infile, fieldnames=infieldnames)
 
     def clean(v):
         return re.sub('\W|^(?=\d)','_', v)
@@ -74,38 +67,9 @@ def evalfilter(" + ','.join([clean(fieldname) for fieldname in infieldnames]) + 
 def evalfilter(" + ','.join([clean(fieldname) for fieldname in infieldnames]) + ",**kwargs):\n\
     return " + args.filter, globals())
 
-    if not incomments:
-        incomments = '#' * 80 + '\n'
-
-    inreader=csv.DictReader(infile, fieldnames=infieldnames)
-
     if (not args.no_comments) and (args.outfile or args.logfile):
-
-        comments = ((' ' + args.outfile + ' ') if args.outfile else '').center(80, '#') + '\n'
-        comments += '# ' + os.path.basename(sys.argv[0]) + '\n'
-        arglist = args.__dict__.keys()
-        for arg in arglist:
-            if arg not in hiddenargs:
-                val = getattr(args, arg)
-                if type(val) == str or type(val) == unicode:
-                    comments += '#     --' + arg + '="' + val + '"\n'
-                elif type(val) == bool:
-                    if val:
-                        comments += '#     --' + arg + '\n'
-                elif type(val) == list:
-                    for valitem in val:
-                        if type(valitem) == str:
-                            comments += '#     --' + arg + '="' + valitem + '"\n'
-                        else:
-                            comments += '#     --' + arg + '=' + str(valitem) + '\n'
-                elif val is not None:
-                    comments += '#     --' + arg + '=' + str(val) + '\n'
-
         logfilename = args.logfile if args.logfile else args.outfile.rsplit('.',1)[0] + '.log'
-        logfile = open(logfilename, 'w')
-        logfile.write(comments.encode('utf-8'))
-        logfile.write(incomments)
-        logfile.close()
+        parser.write_comments(args, logfilename, incomments=incomments)
 
     until = dateparser.parse(args.until).date() if args.until else None
     since = dateparser.parse(args.since).date() if args.since else None
@@ -169,7 +133,7 @@ def evalfilter(" + ','.join([clean(fieldname) for fieldname in infieldnames]) + 
     ax1 = fig.add_axes([0, 0, 1, 1], projection = cartopy.crs.Mercator())
     ax1.add_feature(cartopy.feature.COASTLINE)
 
-    pyplot.title("Cumulative rainfall compared with average: " + args.since or "" + " to " + args.until or "")
+    pyplot.title("Cumulative rainfall compared with average: " + (args.since or "") + " to " + (args.until or ""))
     ax1.contour(xi, yi, zi, linewidths=0.5, colors="k")
     cntr1 = ax1.contour(xi, yi, zi, 10, cmap="hot")
     fig.colorbar(cntr1, ax=ax1)
