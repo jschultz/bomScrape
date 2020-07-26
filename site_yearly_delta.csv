@@ -1,0 +1,57 @@
+######################## WALPOLE_monthly_2019_delta.csv ########################
+# csvFilter
+#     --header="Date"
+#     --header="Delta"
+#     --header="Cumulative"
+#     --prelude="cumulative=0"
+#     --prelude="def cumulate(delta):"
+#     --prelude="    global cumulative"
+#     --prelude="    cumulative += Decimal(delta)"
+#     --prelude="    return cumulative"
+#     --datecol="date"
+#     --outfile="WALPOLE_monthly_2019_delta.csv"
+#     --data="Year+'-'+Month.zfill(2)+'-'+Day.zfill(2)"
+#     --data="Delta"
+#     --data="cumulate(Delta)"
+#     --column="text"
+#     --infile="WALPOLE_monthly_delta.csv"
+#     --filter="Year == '2019'"
+########################## WALPOLE_monthly_delta.csv ###########################
+# csvFilter
+#     --header="Delta"
+#     --prelude="average = { (row['Month'], row['Day']): row['Average Rainfall'] for row in unicodecsv.DictReader(filter(lambda line: line[0]!='#', open('WALPOLE_monthly_md_average.csv'))) }"
+#     --datecol="date"
+#     --outfile="WALPOLE_monthly_delta.csv"
+#     --copy
+#     --data="round(Decimal(Rainfall) - Decimal(average[(Month,Day)]),2)"
+#     --column="text"
+#     --infile="WALPOLE_monthly_ymd.csv"
+########################### WALPOLE_monthly_ymd.csv ############################
+# csvFilter
+#     --header="Year"
+#     --header="Month"
+#     --header="Day"
+#     --header="Rainfall"
+#     --exclude="Date"
+#     --datecol="date"
+#     --outfile="WALPOLE_monthly_ymd.csv"
+#     --data="dateparser.parse(Date).year"
+#     --data="dateparser.parse(Date).month"
+#     --data="dateparser.parse(Date).day"
+#     --data="round(Decimal(Rainfall), 2)"
+#     --column="text"
+################################################################################
+# csvCollect
+#     --header="Date"
+#     --data="[(dateparser.parse(Date) + datetime.timedelta(days=n)).date() for n in range (-6, 7)]"
+#     --score-header="Rainfall smoothed"
+#     --score-header="Rainfall raw"
+#     --score="round(Decimal(Rainfall or 0)/13, 2)"
+#     --score="round(Decimal(Rainfall or 0)/13, 2)"
+#     --datecol="Date"
+#     --sort="Date"
+################################################################################
+# csvFilter
+#     --pipe="sqlite3 -header -csv WA.sqlite "SELECT Date, RainFall, Period from Rainfall, Site WHERE Site.Site = Rainfall.Site AND Name = \"WALPOLE\" ORDER BY Date DESC""
+#     --copy
+################################################################################

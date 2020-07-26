@@ -45,7 +45,7 @@
 #<             "${site}.csv"
 ################################# ${site}.csv ##################################
 # csvFilter
-#     --pipe "sqlite3 -header -csv WA.sqlite "SELECT Date, RainFall, Period from Rainfall, Site WHERE Site.Site = Rainfall.Site AND Name = \"${site}\" ORDER BY Date DESC""
+#     --pipe "sqlite3 -header -csv WA_sites.sqlite "SELECT Date, RainFall, Period from Rainfall, Site WHERE Site.Site = Rainfall.Site AND Name = \"${site}\" ORDER BY Date DESC""
 #     --datecol "date"
 #>    --outfile "${site}.csv"
 #     --copy

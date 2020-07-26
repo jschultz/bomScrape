@@ -1,0 +1,44 @@
+############################ WALPOLE_monthly_md.csv ############################
+# csvCollect
+#     --header="Date"
+#     --score="Decimal(Rainfall)"
+#     --score="1"
+#     --datecol="date"
+#     --sort="Date"
+#     --outfile="WALPOLE_monthly_md.csv"
+#     --data="[(int(Month),int(Day))]"
+#     --infile="WALPOLE_monthly_ymd.csv"
+#     --score_header="Rainfall"
+#     --score_header="Count"
+########################### WALPOLE_monthly_ymd.csv ############################
+# csvFilter.py
+#     --header="Year"
+#     --header="Month"
+#     --header="Day"
+#     --exclude="Date"
+#     --datecol="date"
+#     --outfile="WALPOLE_monthly_ymd.csv"
+#     --copy
+#     --data="dateparser.parse(Date).year"
+#     --data="dateparser.parse(Date).month"
+#     --data="dateparser.parse(Date).day"
+#     --column="text"
+#     --infile="WALPOLE_monthly.csv"
+############################# WALPOLE_monthly.csv ##############################
+# csvCollect.py
+#     --header="Date"
+#     --score="Decimal(Rainfall or 0)"
+#     --datecol="Date"
+#     --sort="Date"
+#     --outfile="WALPOLE_monthly.csv"
+#     --data="[(dateparser.parse(Date) + datetime.timedelta(days=n)).date() for n in range (-6, 7)]"
+#     --interval="4 weeks"
+#     --infile="WALPOLE.csv"
+#     --score_header="Rainfall"
+################################# WALPOLE.csv ##################################
+# csvFilter
+#     --pipe="sqlite3 -header -csv WA.sqlite "SELECT Date, RainFall, Period, Rainfall/Period AS Daily from Rainfall, Site WHERE Site.Site = Rainfall.Site AND Name = \"WALPOLE\" ORDER BY Date DESC""
+#     --outfile="WALPOLE.csv"
+#     --date="date"
+#     --column="text"
+################################################################################
